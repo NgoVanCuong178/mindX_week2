@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "TicketManager.Cli": {
-      "commandName": "Project",
-      "commandLineArgs": "list --data-file C:\\Downloads\\mindx\\Homework_week2\\demo.json\r\n"
-    }
-  }
-}

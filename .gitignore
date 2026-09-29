@@ -482,3 +482,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local files created while trying the CLI by hand
+demo*.json
+**/Properties/launchSettings.json

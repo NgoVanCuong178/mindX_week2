@@ -5,6 +5,9 @@ namespace TicketManager.Cli.Services;
 
 public class TicketService
 {
+    public const int MaxTitleLength = 200;
+    public const int MaxDescriptionLength = 2000;
+
     private readonly ITicketRepository _repository;
     private readonly TimeProvider _timeProvider;
 
@@ -19,39 +22,19 @@ public class TicketService
                          TicketPriority priority = TicketPriority.Medium,
                          IEnumerable<string>? tags = null)
     {
-        var trimmedTitle = title?.Trim();
-        if (string.IsNullOrEmpty(trimmedTitle))
-        {
-            throw new ValidationException("Title is required.");
-        }
-
-        // Length is checked after trimming, so surrounding spaces do not count.
-        if (trimmedTitle.Length > 200)
-        {
-            throw new ValidationException("Title must not exceed 200 characters.");
-        }
-
-        description ??= "";
-        if (description.Length > 2000)
-        {
-            throw new ValidationException("Description must not exceed 2000 characters.");
-        }
-
-        var tickets = _repository.LoadAll().ToList();
         var ticket = new Ticket
         {
-            // max + 1 (not count + 1) so ids stay unique when the sequence has gaps.
-            Id = tickets.Select(t => t.Id).DefaultIfEmpty(0).Max() + 1,
-            Title = trimmedTitle,
-            Description = description,
+            Title = ValidateTitle(title),
+            Description = ValidateDescription(description),
             Status = status,
             Priority = priority,
-            Tags = (tags ?? []).Select(t => t.Trim().ToLowerInvariant())
-                               .Where(t => t.Length > 0)
-                               .Distinct()
-                               .ToList(),
-            CreatedAt = _timeProvider.GetUtcNow(),
+            Tags = NormalizeTags(tags),
         };
+
+        var tickets = _repository.LoadAll().ToList();
+        // max + 1 (not count + 1) so ids stay unique when the sequence has gaps.
+        ticket.Id = tickets.Select(t => t.Id).DefaultIfEmpty(0).Max() + 1;
+        ticket.CreatedAt = _timeProvider.GetUtcNow();
 
         tickets.Add(ticket);
         _repository.SaveAll(tickets);
@@ -62,7 +45,7 @@ public class TicketService
                                       TicketPriority? priority = null,
                                       IEnumerable<string>? tags = null)
     {
-        var wantedTags = (tags ?? []).Select(t => t.Trim().ToLowerInvariant()).ToList();
+        var wantedTags = (tags ?? []).Select(NormalizeTag).ToList();
 
         // All filters are combined with AND; an empty tag list matches every ticket.
         return _repository.LoadAll()
@@ -73,19 +56,56 @@ public class TicketService
             .ToList();
     }
 
-    public Ticket Get(int id)
-        => _repository.LoadAll().FirstOrDefault(t => t.Id == id)
-           ?? throw new TicketNotFoundException(id);
+    public Ticket Get(int id) => FindOrThrow(_repository.LoadAll(), id);
 
     public Ticket UpdateStatus(int id, TicketStatus status)
     {
         var tickets = _repository.LoadAll().ToList();
-        var ticket = tickets.FirstOrDefault(t => t.Id == id)
-                     ?? throw new TicketNotFoundException(id);
+        var ticket = FindOrThrow(tickets, id);
 
         ticket.Status = status;
         ticket.UpdatedAt = _timeProvider.GetUtcNow();
         _repository.SaveAll(tickets);
         return ticket;
     }
+
+    private static string ValidateTitle(string? title)
+    {
+        var trimmed = title?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            throw new ValidationException("Title is required.");
+        }
+
+        // Length is checked after trimming, so surrounding spaces do not count.
+        if (trimmed.Length > MaxTitleLength)
+        {
+            throw new ValidationException($"Title must not exceed {MaxTitleLength} characters.");
+        }
+
+        return trimmed;
+    }
+
+    private static string ValidateDescription(string? description)
+    {
+        description ??= "";
+        if (description.Length > MaxDescriptionLength)
+        {
+            throw new ValidationException($"Description must not exceed {MaxDescriptionLength} characters.");
+        }
+
+        return description;
+    }
+
+    private static List<string> NormalizeTags(IEnumerable<string>? tags)
+        => (tags ?? [])
+            .Select(NormalizeTag)
+            .Where(t => t.Length > 0)
+            .Distinct()
+            .ToList();
+
+    private static string NormalizeTag(string tag) => tag.Trim().ToLowerInvariant();
+
+    private static Ticket FindOrThrow(IEnumerable<Ticket> tickets, int id)
+        => tickets.FirstOrDefault(t => t.Id == id) ?? throw new TicketNotFoundException(id);
 }
